@@ -98,3 +98,31 @@ func synth(sensorType string) float64 {
 		return rand.Float64() * 100
 	}
 }
+
+// RunWithSink is identical to Run, but calls the provided sink with each Reading.
+// It does NOT print to stdout; the caller decides what to do with the reading.
+func (l *Loop) RunWithSink(ctx context.Context, sink func(Reading)) error {
+	time.Sleep(time.Duration(rand.Intn(250)) * time.Millisecond)
+
+	t := time.NewTimer(l.period())
+	defer t.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+			r := Reading{
+				Value:      synth(l.sensorType),
+				SensorType: l.sensorType,
+				ID1:        l.id1,
+				ID2:        l.id2,
+				Timestamp:  time.Now().UTC(),
+			}
+			if sink != nil {
+				sink(r)
+			}
+			t.Reset(l.period())
+		}
+	}
+}

@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package sensor;
+
+option go_package = "services/ingest-b/proto;sensorpb";
+
+message SensorReading {
+  double value = 1;
+  string sensor_type = 2;
+  string id1 = 3;      // uppercase A..Z
+  int32 id2 = 4;
+  int64 timestamp_unix_ms = 5; // milliseconds since epoch (UTC)
+}
+
+message IngestAck {
+  uint64 count = 1;
+}
+
+service IngestService {
+  // Microservice A streams readings to this method.
+  rpc StreamReadings(stream SensorReading) returns (IngestAck);
+}
