@@ -51,19 +51,33 @@ This simulates real IoT sensors where:
   * specifying readings per second (`hz`)
   * or specifying millisecond period (`period_ms`)
 
-###  When running multiple A instances
+###  Running Multiple Microservice A Instances
 
-You can simulate multiple different sensors by changing constants:
+Microservice A supports environment variable overrides, allowing you to run multiple sensor simulators, each with a different fixed identity.
 
-```go
-SENSOR_TYPE = "humidity"
-ID1 = "B"
-ID2 = 2
-PORT = ":8082"
+Each instance represents one physical sensor.
+
+#### Run Example Instances
+
+**Temperature sensor (A, 1)**
+
+```bash
+SENSOR_TYPE=temperature ID1=A ID2=1 PORT=:8081 go run ./cmd/server
 ```
 
-Each instance represents **one real sensor**.
+**Humidity sensor (B, 2)**
 
+```bash
+SENSOR_TYPE=humidity ID1=B ID2=2 PORT=:8082 go run ./cmd/server
+```
+
+**Pressure sensor (C, 3)**
+
+```bash
+SENSOR_TYPE=pressure ID1=C ID2=3 PORT=:8083 go run ./cmd/server
+```
+
+You can run as many Microservice A instances as you want — each on a different port, with its own sensor type and IDs.
 ---
 
 ## Microservice B — Ingest, Store & Query Sensor Readings

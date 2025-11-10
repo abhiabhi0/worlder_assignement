@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -15,20 +16,59 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// ---- FIXED INSTANCE PROPERTIES (each Microservice A runs one sensor type) ----
+// Default values — but now overridable through env variables.
 const (
-	SENSOR_TYPE = "temperature"
-	ID1         = "A"
-	ID2         = 1
-
-	INITIAL_HZ = 1.0              // initial readings/sec
-	PORT       = ":8081"          // A's REST port
-	B_GRPC     = "localhost:9090" // B's gRPC address
+	DEF_SENSOR_TYPE = "temperature"
+	DEF_ID1         = "A"
+	DEF_ID2         = 1
+	DEF_INITIAL_HZ  = 1.0
+	DEF_PORT        = ":8081"
+	DEF_B_GRPC      = "localhost:9090"
 )
 
+// small helper functions
+func getenv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func getenvInt(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		n, err := strconv.Atoi(v)
+		if err == nil {
+			return n
+		}
+	}
+	return def
+}
+
+func getenvFloat(key string, def float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err == nil {
+			return f
+		}
+	}
+	return def
+}
+
 func main() {
-	// 1) Dial Microservice B (gRPC)
-	conn, err := grpc.Dial(B_GRPC, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	// ---------------------------------------------
+	// 1) Load settings (env overrides defaults)
+	// ---------------------------------------------
+	sensorType := getenv("SENSOR_TYPE", DEF_SENSOR_TYPE)
+	id1 := getenv("ID1", DEF_ID1)
+	id2 := getenvInt("ID2", DEF_ID2)
+	initialHz := getenvFloat("HZ", DEF_INITIAL_HZ)
+	port := getenv("PORT", DEF_PORT)
+	bGrpc := getenv("B_GRPC", DEF_B_GRPC)
+
+	// ---------------------------------------------
+	// 2) gRPC connection to Microservice B
+	// ---------------------------------------------
+	conn, err := grpc.Dial(bGrpc, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		panic(err)
 	}
@@ -40,17 +80,18 @@ func main() {
 		panic(err)
 	}
 	defer func() {
-		// close stream on exit (ignore ack here)
 		_, _ = stream.CloseAndRecv()
 	}()
 
-	// 2) Build generator loop that sends each reading to B
-	loop := generator.NewLoop(ID1, ID2, SENSOR_TYPE, INITIAL_HZ)
+	// ---------------------------------------------
+	// 3) Sensor generator loop
+	// ---------------------------------------------
+	loop := generator.NewLoop(id1, id2, sensorType, initialHz)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Use RunWithSink (see section 2 to add it) so each tick is sent to B
+	// Each reading is streamed to B
 	go func() {
 		_ = loop.RunWithSink(ctx, func(r generator.Reading) {
 			_ = stream.Send(&sensorpb.SensorReading{
@@ -63,15 +104,18 @@ func main() {
 		})
 	}()
 
-	// 3) Minimal REST server to change frequency (as required)
+	// ---------------------------------------------
+	// 4) REST: change frequency
+	// ---------------------------------------------
 	h := handler.New(loop)
 	e := handler.Router(h)
 
-	// start REST
 	errCh := make(chan error, 1)
-	go func() { errCh <- e.Start(PORT) }()
+	go func() { errCh <- e.Start(port) }()
 
-	// 4) Graceful shutdown on signal or server error
+	// ---------------------------------------------
+	// 5) Graceful shutdown
+	// ---------------------------------------------
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
@@ -80,7 +124,6 @@ func main() {
 	case <-errCh:
 	}
 
-	// shut down HTTP cleanly
 	shCtx, cancel2 := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel2()
 	_ = e.Shutdown(shCtx)
